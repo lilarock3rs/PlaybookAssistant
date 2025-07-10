@@ -1,0 +1,16 @@
+{
+  "functions": {
+    "api/**/*.ts": {
+      "runtime": "nodejs18.x"
+    }
+  },
+  "env": {
+    "SLACK_BOT_TOKEN": "@slack_bot_token",
+    "SLACK_SIGNING_SECRET": "@slack_signing_secret",
+    "GOOGLE_API_KEY": "@google_api_key",
+    "CLICKUP_API_KEY": "@clickup_api_key",
+    "CLICKUP_WORKSPACE_ID": "@clickup_workspace_id",
+    "CLICKUP_PLAYBOOKS_FOLDER_ID": "@clickup_playbooks_folder_id",
+    "DATABASE_URL": "@database_url"
+  }
+}
