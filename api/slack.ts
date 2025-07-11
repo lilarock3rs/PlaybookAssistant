@@ -299,55 +299,66 @@ function extractDescriptionFromContent(content: string): string {
   
   // Remove HTML tags but keep some structure for parsing
   let cleanContent = content.replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim();
-  console.log('Clean content preview:', cleanContent.substring(0, 300));
+  console.log('Clean content preview:', cleanContent.substring(0, 500));
   
-  // Look for "What is..." pattern
-  const whatIsMatch = cleanContent.match(/What is[^?]*\??\s*([^.!?]*[.!?])/i);
-  if (whatIsMatch && whatIsMatch[1]) {
-    const description = whatIsMatch[1].trim();
-    console.log('Found "What is..." description:', description);
-    return description;
+  // First, look for "Definition" section
+  const definitionMatch = cleanContent.match(/Definition[:\s]*([^]+?)(?=\n\n|\r\n\r\n|$)/i);
+  if (definitionMatch && definitionMatch[1]) {
+    const definitionSection = definitionMatch[1].trim();
+    console.log('Found Definition section:', definitionSection.substring(0, 200));
+    
+    // Within the Definition section, look for "What is..." pattern
+    const whatIsMatch = definitionSection.match(/What is[^?]*\?\s*(.+?)(?=\.|$)/i);
+    if (whatIsMatch && whatIsMatch[1]) {
+      const description = whatIsMatch[1].trim();
+      // Get first 100 characters as requested
+      const result = description.length > 100 ? description.substring(0, 100) + '...' : description;
+      console.log('Found "What is..." in Definition section:', result);
+      return result;
+    }
+    
+    // If no "What is..." found in Definition, use the Definition content itself
+    const result = definitionSection.length > 100 ? definitionSection.substring(0, 100) + '...' : definitionSection;
+    console.log('Using Definition section content:', result);
+    return result;
+  }
+  
+  // Fallback: Look for "What is..." anywhere in the content
+  const globalWhatIsMatch = cleanContent.match(/What is[^?]*\?\s*(.+?)(?=\.|!|\?|$)/i);
+  if (globalWhatIsMatch && globalWhatIsMatch[1]) {
+    const description = globalWhatIsMatch[1].trim();
+    const result = description.length > 100 ? description.substring(0, 100) + '...' : description;
+    console.log('Found global "What is..." description:', result);
+    return result;
   }
   
   // Alternative patterns to look for
   const patterns = [
-    /What is[:\s]+([^.!?]*[.!?])/i,
-    /Description[:\s]+([^.!?]*[.!?])/i,
-    /Overview[:\s]+([^.!?]*[.!?])/i,
-    /Purpose[:\s]+([^.!?]*[.!?])/i
+    /Definition[:\s]*(.{0,100})/i,
+    /Description[:\s]*(.{0,100})/i,
+    /Overview[:\s]*(.{0,100})/i,
+    /Purpose[:\s]*(.{0,100})/i
   ];
   
   for (const pattern of patterns) {
     const match = cleanContent.match(pattern);
-    if (match && match[1]) {
+    if (match && match[1] && match[1].trim().length > 10) {
       const description = match[1].trim();
-      console.log('Found description with pattern:', pattern, description);
-      return description;
+      const result = description.length > 100 ? description.substring(0, 100) + '...' : description;
+      console.log('Found description with pattern:', pattern.source, '→', result);
+      return result;
     }
   }
   
-  // If no specific pattern found, look for first meaningful sentence after common headers
-  const lines = cleanContent.split(/[.!?]+/).filter(line => line.trim().length > 10);
-  console.log('Available lines:', lines.slice(0, 5));
-  
-  // Skip very short lines and headers, get first substantial content
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (trimmed.length > 20 && !trimmed.toLowerCase().includes('header') && !trimmed.toLowerCase().includes('title')) {
-      console.log('Using first substantial line:', trimmed);
-      return trimmed + '.';
-    }
-  }
-  
-  // Fallback: get first 200 characters
-  if (cleanContent.length > 200) {
-    const fallback = cleanContent.substring(0, 200) + '...';
-    console.log('Using fallback description:', fallback);
-    return fallback;
+  // Fallback: get first 100 characters of meaningful content
+  if (cleanContent.length > 20) {
+    const result = cleanContent.length > 100 ? cleanContent.substring(0, 100) + '...' : cleanContent;
+    console.log('Using fallback description (first 100 chars):', result);
+    return result;
   }
   
   console.log('No description found, returning default');
-  return cleanContent || 'No description available';
+  return 'No description available';
 }
 
 function extractTimelineFromContent(content: string): string {
