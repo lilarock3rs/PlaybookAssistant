@@ -237,6 +237,17 @@ async function getDocumentDetails(docId: string, workspaceId: string, apiKey: st
   console.log('Available pages count:', pages.length);
   console.log('Available page names:', pages.map((p: any) => p.name || 'unnamed'));
   
+  // Log detailed page structure for debugging
+  pages.forEach((page: any, index: number) => {
+    console.log(`Page ${index + 1}:`, {
+      name: page.name,
+      hasContent: !!page.content,
+      hasDescription: !!page.description,
+      contentPreview: page.content ? page.content.substring(0, 200) + '...' : 'No content',
+      descriptionPreview: page.description ? page.description.substring(0, 200) + '...' : 'No description'
+    });
+  });
+  
   let description = 'No description available';
   let timeline = 'Not specified';
 
@@ -484,7 +495,7 @@ function formatPlaybooksForSlack(playbooks: any[], query: string) {
       elements: [
         {
           type: 'mrkdwn',
-          text: `📅 Updated: ${new Date(playbook.updated_at).toLocaleDateString()} | ID: ${playbook.id}`
+          text: `📅 Updated: ${playbook.updated_at ? new Date(playbook.updated_at).toLocaleDateString() : 'Unknown'} | ID: ${playbook.id}`
         }
       ]
     });
