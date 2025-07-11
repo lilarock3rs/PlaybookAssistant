@@ -301,14 +301,14 @@ function extractDescriptionFromContent(content: string): string {
   let cleanContent = content.replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim();
   console.log('Clean content preview:', cleanContent.substring(0, 500));
   
-  // First, look for "Definition" section
-  const definitionMatch = cleanContent.match(/Definition[:\s]*([^]+?)(?=\n\n|\r\n\r\n|$)/i);
+  // First, look for "Definition" section with improved boundary detection
+  const definitionMatch = cleanContent.match(/Definition[:\s]*(.+?)(?=\s*(?:Timeline|Estimated Timeline|Key Components|Implementation|Steps|Overview|Purpose|Benefits|Objectives|Requirements|Notes|$))/i);
   if (definitionMatch && definitionMatch[1]) {
     const definitionSection = definitionMatch[1].trim();
     console.log('Found Definition section:', definitionSection.substring(0, 200));
     
-    // Within the Definition section, look for "What is..." pattern
-    const whatIsMatch = definitionSection.match(/What is[^?]*\?\s*(.+?)(?=\.|$)/i);
+    // Within the Definition section, look for "What is..." pattern with better boundary handling
+    const whatIsMatch = definitionSection.match(/What is[^?]*\?\s*([^.]+(?:\.[^.]*)*?)(?=\s*(?:Timeline|Estimated Timeline|Key Components|Implementation|Steps|Overview|$|\.(?:\s*[A-Z])))/i);
     if (whatIsMatch && whatIsMatch[1]) {
       const description = whatIsMatch[1].trim();
       // Get first 100 characters as requested
@@ -317,14 +317,31 @@ function extractDescriptionFromContent(content: string): string {
       return result;
     }
     
-    // If no "What is..." found in Definition, use the Definition content itself
+    // Alternative: look for text immediately after "What is [question]?" pattern
+    const simpleWhatIsMatch = definitionSection.match(/What is[^?]*\?\s*(.{1,200}?)(?=\s*(?:Timeline|Key Components|Implementation|Steps|$))/i);
+    if (simpleWhatIsMatch && simpleWhatIsMatch[1]) {
+      const description = simpleWhatIsMatch[1].trim();
+      const result = description.length > 100 ? description.substring(0, 100) + '...' : description;
+      console.log('Found simple "What is..." pattern:', result);
+      return result;
+    }
+    
+    // If no "What is..." found in Definition, use the Definition content itself (first sentence or 100 chars)
+    const firstSentence = definitionSection.match(/^([^.]+)/);
+    if (firstSentence && firstSentence[1]) {
+      const description = firstSentence[1].trim();
+      const result = description.length > 100 ? description.substring(0, 100) + '...' : description;
+      console.log('Using first sentence of Definition section:', result);
+      return result;
+    }
+    
     const result = definitionSection.length > 100 ? definitionSection.substring(0, 100) + '...' : definitionSection;
     console.log('Using Definition section content:', result);
     return result;
   }
   
-  // Fallback: Look for "What is..." anywhere in the content
-  const globalWhatIsMatch = cleanContent.match(/What is[^?]*\?\s*(.+?)(?=\.|!|\?|$)/i);
+  // Fallback: Look for "What is..." anywhere in the content with improved boundaries
+  const globalWhatIsMatch = cleanContent.match(/What is[^?]*\?\s*([^.]+(?:\.[^.]*)*?)(?=\s*(?:Timeline|Estimated Timeline|Key Components|Implementation|Steps|Overview|$|\.(?:\s*[A-Z])))/i);
   if (globalWhatIsMatch && globalWhatIsMatch[1]) {
     const description = globalWhatIsMatch[1].trim();
     const result = description.length > 100 ? description.substring(0, 100) + '...' : description;
@@ -332,20 +349,29 @@ function extractDescriptionFromContent(content: string): string {
     return result;
   }
   
-  // Alternative patterns to look for
+  // Alternative patterns to look for with improved boundaries
   const patterns = [
-    /Definition[:\s]*(.{0,100})/i,
-    /Description[:\s]*(.{0,100})/i,
-    /Overview[:\s]*(.{0,100})/i,
-    /Purpose[:\s]*(.{0,100})/i
+    /Definition[:\s]*(.+?)(?=\s*(?:Timeline|Estimated Timeline|Key Components|Implementation|Steps|Overview|$))/i,
+    /Description[:\s]*(.+?)(?=\s*(?:Timeline|Estimated Timeline|Key Components|Implementation|Steps|Overview|$))/i,
+    /Overview[:\s]*(.+?)(?=\s*(?:Timeline|Estimated Timeline|Key Components|Implementation|Steps|Definition|$))/i,
+    /Purpose[:\s]*(.+?)(?=\s*(?:Timeline|Estimated Timeline|Key Components|Implementation|Steps|Overview|$))/i
   ];
   
   for (const pattern of patterns) {
     const match = cleanContent.match(pattern);
     if (match && match[1] && match[1].trim().length > 10) {
       const description = match[1].trim();
+      // Get first sentence or 100 characters
+      const firstSentence = description.match(/^([^.]+)/);
+      if (firstSentence && firstSentence[1] && firstSentence[1].trim().length > 10) {
+        const result = firstSentence[1].trim();
+        const finalResult = result.length > 100 ? result.substring(0, 100) + '...' : result;
+        console.log('Found description with pattern:', pattern.source, '→', finalResult);
+        return finalResult;
+      }
+      
       const result = description.length > 100 ? description.substring(0, 100) + '...' : description;
-      console.log('Found description with pattern:', pattern.source, '→', result);
+      console.log('Found description with pattern (full):', pattern.source, '→', result);
       return result;
     }
   }
@@ -367,34 +393,53 @@ function extractTimelineFromContent(content: string): string {
   // Remove HTML tags for cleaner matching
   const cleanContent = content.replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim();
   
-  // Look for specific timeline patterns, prioritizing "Estimated Timeline"
+  // Look for specific timeline patterns with improved boundary detection
   const timelinePatterns = [
-    /estimated\s+timeline[:\s]*([^.\n]*)/i,
-    /timeline[:\s]*([^.\n]*)/i,
-    /estimated\s+time[:\s]*([^.\n]*)/i,
-    /duration[:\s]*([^.\n]*)/i,
-    /time\s+required[:\s]*([^.\n]*)/i,
-    /hours?[:\s]*([^.\n]*)/i,
-    /sprint[s]?[:\s]*([^.\n]*)/i,
-    /weeks?[:\s]*([^.\n]*)/i,
-    /days?[:\s]*([^.\n]*)/i
+    /estimated\s+timeline[:\s]*(.+?)(?=\s*(?:Key Components|Implementation|Steps|Overview|Definition|Benefits|Objectives|Requirements|Notes|$))/i,
+    /timeline[:\s]*(.+?)(?=\s*(?:Key Components|Implementation|Steps|Overview|Definition|Benefits|Objectives|Requirements|Notes|$))/i,
+    /estimated\s+time[:\s]*(.+?)(?=\s*(?:Key Components|Implementation|Steps|Overview|Definition|Benefits|Objectives|Requirements|Notes|$))/i,
+    /duration[:\s]*(.+?)(?=\s*(?:Key Components|Implementation|Steps|Overview|Definition|Benefits|Objectives|Requirements|Notes|$))/i,
+    /time\s+required[:\s]*(.+?)(?=\s*(?:Key Components|Implementation|Steps|Overview|Definition|Benefits|Objectives|Requirements|Notes|$))/i,
+    /hours?[:\s]*(.+?)(?=\s*(?:Key Components|Implementation|Steps|Overview|Definition|Benefits|Objectives|Requirements|Notes|$))/i,
+    /sprint[s]?[:\s]*(.+?)(?=\s*(?:Key Components|Implementation|Steps|Overview|Definition|Benefits|Objectives|Requirements|Notes|$))/i,
+    /weeks?[:\s]*(.+?)(?=\s*(?:Key Components|Implementation|Steps|Overview|Definition|Benefits|Objectives|Requirements|Notes|$))/i,
+    /days?[:\s]*(.+?)(?=\s*(?:Key Components|Implementation|Steps|Overview|Definition|Benefits|Objectives|Requirements|Notes|$))/i
   ];
 
   for (const pattern of timelinePatterns) {
     const match = cleanContent.match(pattern);
     if (match && match[1]) {
       const timeline = match[1].trim();
-      console.log('Found timeline with pattern:', pattern.source, '→', timeline);
-      return timeline;
+      // Clean up the timeline to remove extra text
+      const cleanTimeline = timeline.replace(/\s*(?:Key Components|Implementation|Steps|Overview|Definition|Benefits|Objectives|Requirements|Notes).*$/i, '').trim();
+      console.log('Found timeline with pattern:', pattern.source, '→', cleanTimeline);
+      return cleanTimeline;
     }
   }
 
-  // Look for any number followed by time units
-  const numberTimePattern = /(\d+\s*(?:hour|day|week|month|sprint)s?)/i;
+  // Look for any number followed by time units anywhere in content
+  const numberTimePattern = /(\d+[-\s]*(?:to|-)?\s*\d*\s*(?:hour|day|week|month|sprint)s?)/i;
   const numberMatch = cleanContent.match(numberTimePattern);
   if (numberMatch) {
     console.log('Found number-based timeline:', numberMatch[1]);
     return numberMatch[1];
+  }
+
+  // Look for common time expressions
+  const timeExpressions = [
+    /(\d+[-\s]*(?:to|-)?\s*\d*\s*(?:hrs?|days?|weeks?|months?))/i,
+    /(quick|fast|rapid)\s+(?:implementation|setup)/i,
+    /(long[- ]?term|short[- ]?term)/i,
+    /(\d+\s*sprints?)/i,
+    /(immediate|ongoing|continuous)/i
+  ];
+
+  for (const pattern of timeExpressions) {
+    const match = cleanContent.match(pattern);
+    if (match && match[1]) {
+      console.log('Found time expression:', match[1]);
+      return match[1];
+    }
   }
 
   console.log('No timeline pattern found');
