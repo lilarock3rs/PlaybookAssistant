@@ -137,23 +137,25 @@ async function handleSearch(query: string, res: VercelResponse) {
 
 async function searchClickUpPlaybooks(query: string) {
   const clickupApiKey = process.env.CLICKUP_API_KEY;
-  const folderId = process.env.CLICKUP_PLAYBOOKS_FOLDER_ID;
+  const workspaceId = process.env.CLICKUP_WORKSPACE_ID || '2285500';
+  const parentId = process.env.CLICKUP_PLAYBOOKS_FOLDER_ID || '98107928';
   
   if (!clickupApiKey) {
     throw new Error('ClickUp API key not configured');
   }
 
-  // Search in ClickUp folder
-  const url = folderId 
-    ? `https://api.clickup.com/api/v2/folder/${folderId}/task`
-    : `https://api.clickup.com/api/v2/team/2285500/task`;
+  console.log('Searching docs with:', { workspaceId, parentId, query });
 
+  // Get all documents from the workspace with parent_id filter
+  const docsUrl = `https://api.clickup.com/api/v3/workspaces/${workspaceId}/docs`;
   const queryParams = new URLSearchParams({
-    limit: '10',
-    include_completed: 'false'
+    deleted: 'false',
+    archived: 'false',
+    limit: '50',
+    parent_id: parentId
   });
 
-  const response = await fetch(`${url}?${queryParams}`, {
+  const response = await fetch(`${docsUrl}?${queryParams}`, {
     headers: {
       'Authorization': clickupApiKey,
       'Content-Type': 'application/json'
@@ -161,17 +163,135 @@ async function searchClickUpPlaybooks(query: string) {
   });
 
   if (!response.ok) {
-    throw new Error(`ClickUp API error: ${response.status}`);
+    throw new Error(`ClickUp Docs API error: ${response.status} ${response.statusText}`);
   }
 
   const data = await response.json() as any;
-  const tasks = data.tasks || [];
+  console.log('Docs API response:', data);
+  
+  const docs = data.docs || [];
 
-  // Filter tasks that match the query
-  return tasks.filter((task: any) => 
-    task.name.toLowerCase().includes(query.toLowerCase()) ||
-    (task.description && task.description.toLowerCase().includes(query.toLowerCase()))
+  // Filter documents that match the query
+  const matchingDocs = docs.filter((doc: any) => 
+    doc.name.toLowerCase().includes(query.toLowerCase())
   );
+
+  console.log('Matching docs:', matchingDocs.length);
+
+  // Get detailed info for each matching document
+  const detailedPlaybooks = [];
+  for (const doc of matchingDocs.slice(0, 5)) { // Limit to 5 results
+    try {
+      const docDetails = await getDocumentDetails(doc.id, workspaceId, clickupApiKey);
+      detailedPlaybooks.push({
+        id: doc.id,
+        name: doc.name,
+        url: `https://app.clickup.com/doc/${doc.id}`,
+        description: docDetails.description,
+        timeline: docDetails.timeline,
+        created_at: doc.created_at,
+        updated_at: doc.updated_at
+      });
+    } catch (error) {
+      console.error(`Error getting details for doc ${doc.id}:`, error);
+      // Add basic info even if detailed fetch fails
+      detailedPlaybooks.push({
+        id: doc.id,
+        name: doc.name,
+        url: `https://app.clickup.com/doc/${doc.id}`,
+        description: 'Could not fetch description',
+        timeline: 'Not specified',
+        created_at: doc.created_at,
+        updated_at: doc.updated_at
+      });
+    }
+  }
+
+  return detailedPlaybooks;
+}
+
+async function getDocumentDetails(docId: string, workspaceId: string, apiKey: string) {
+  console.log('Getting document details for:', docId);
+  
+  const docUrl = `https://api.clickup.com/api/v3/workspaces/${workspaceId}/docs/${docId}`;
+  
+  const response = await fetch(docUrl, {
+    headers: {
+      'Authorization': apiKey,
+      'Content-Type': 'application/json'
+    }
+  });
+
+  if (!response.ok) {
+    throw new Error(`Document API error: ${response.status}`);
+  }
+
+  const docData = await response.json() as any;
+  console.log('Document data structure:', Object.keys(docData));
+  
+  // Look for "primer" page in the document content
+  const pages = docData.pages || [];
+  console.log('Document pages:', pages.length);
+  
+  let description = 'No description available';
+  let timeline = 'Not specified';
+
+  // Search for "primer" page
+  const primerPage = pages.find((page: any) => 
+    page.name && page.name.toLowerCase().includes('primer')
+  );
+
+  if (primerPage) {
+    console.log('Found primer page:', primerPage.name);
+    
+    // Extract description and timeline from primer page content
+    const content = primerPage.content || '';
+    
+    // Try to extract description (assuming it's in the content)
+    description = extractDescriptionFromContent(content);
+    timeline = extractTimelineFromContent(content);
+  } else {
+    console.log('No primer page found, available pages:', pages.map((p: any) => p.name));
+    
+    // Fallback: use document description if available
+    if (docData.description) {
+      description = docData.description;
+    }
+  }
+
+  return { description, timeline };
+}
+
+function extractDescriptionFromContent(content: string): string {
+  // Remove HTML tags and get first meaningful paragraph
+  const cleanContent = content.replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim();
+  
+  // Get first 200 characters as description
+  if (cleanContent.length > 200) {
+    return cleanContent.substring(0, 200) + '...';
+  }
+  
+  return cleanContent || 'No description available';
+}
+
+function extractTimelineFromContent(content: string): string {
+  // Look for common timeline patterns
+  const timelinePatterns = [
+    /timeline[:\s]*([^<\n]*)/i,
+    /hours?[:\s]*([^<\n]*)/i,
+    /sprint[s]?[:\s]*([^<\n]*)/i,
+    /duration[:\s]*([^<\n]*)/i,
+    /time[:\s]*([^<\n]*)/i
+  ];
+
+  for (const pattern of timelinePatterns) {
+    const match = content.match(pattern);
+    if (match && match[1]) {
+      return match[1].trim();
+    }
+  }
+
+  return 'Not specified';
 }
 
 function formatPlaybooksForSlack(playbooks: any[], query: string) {
@@ -180,7 +300,7 @@ function formatPlaybooksForSlack(playbooks: any[], query: string) {
       type: 'section',
       text: {
         type: 'mrkdwn',
-        text: `*Search Results for "${query}"*`
+        text: `*🔍 Search Results for "${query}"*\nFound ${playbooks.length} playbook(s)`
       }
     },
     {
@@ -191,21 +311,11 @@ function formatPlaybooksForSlack(playbooks: any[], query: string) {
   playbooks.forEach((playbook, index) => {
     if (index >= 5) return; // Limit to 5 results
     
-    // Extract custom fields for hours/timeline
-    const customFields = playbook.custom_fields || [];
-    const hoursField = customFields.find((field: any) => 
-      field.name.toLowerCase().includes('hour') || 
-      field.name.toLowerCase().includes('time') ||
-      field.name.toLowerCase().includes('sprint')
-    );
-    
-    const hoursInfo = hoursField ? hoursField.value : 'Not specified';
-    
     blocks.push({
       type: 'section',
       text: {
         type: 'mrkdwn',
-        text: `*${playbook.name}*\n${playbook.description || 'No description available'}\n\n⏱️ *Timeline:* ${hoursInfo}`
+        text: `*📖 ${playbook.name}*\n${playbook.description}\n\n⏱️ *Timeline:* ${playbook.timeline}`
       },
       accessory: {
         type: 'button',
@@ -222,7 +332,7 @@ function formatPlaybooksForSlack(playbooks: any[], query: string) {
       elements: [
         {
           type: 'mrkdwn',
-          text: `Status: ${playbook.status?.status || 'Unknown'} | List: ${playbook.list?.name || 'Unknown'}`
+          text: `📅 Updated: ${new Date(playbook.updated_at).toLocaleDateString()} | ID: ${playbook.id}`
         }
       ]
     });
@@ -232,6 +342,17 @@ function formatPlaybooksForSlack(playbooks: any[], query: string) {
         type: 'divider'
       });
     }
+  });
+
+  // Add footer with search tips
+  blocks.push({
+    type: 'context',
+    elements: [
+      {
+        type: 'mrkdwn',
+        text: 'ℹ️ _Try different keywords if you don\'t find what you\'re looking for_'
+      }
+    ]
   });
 
   return blocks;
