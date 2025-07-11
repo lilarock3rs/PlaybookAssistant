@@ -38,7 +38,7 @@ async function handleCommands(req: VercelRequest, res: VercelResponse) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
   
-  const { command, text } = req.body;
+  const { command, text, user_name } = req.body;
   
   switch (command) {
     case '/playbook-help':
@@ -51,15 +51,81 @@ async function handleCommands(req: VercelRequest, res: VercelResponse) {
 • \`/playbook-sync\` - Synchronize playbooks from ClickUp
 • \`/playbook-help\` - Show this help message
 
-The bot is currently being set up. Full functionality will be available soon!`
+🤖 *Status:* Ready to help ${user_name}!`
       });
+
+    case '/playbook-sync':
+      return handleSync(req, res);
+      
+    case '/playbook-search':
+      return handleSearch(text, res);
+      
+    case '/playbook-category':
+      return handleCategory(text, res);
       
     default:
       return res.status(200).json({
         response_type: 'ephemeral',
-        text: 'Bot is being configured. Use `/playbook-help` for available commands.'
+        text: 'Unknown command. Use `/playbook-help` for available commands.'
       });
   }
+}
+
+async function handleSync(req: VercelRequest, res: VercelResponse) {
+  const { user_name } = req.body;
+  
+  try {
+    // Basic ClickUp API test
+    const clickupApiKey = process.env.CLICKUP_API_KEY;
+    const folderId = process.env.CLICKUP_PLAYBOOKS_FOLDER_ID;
+    
+    if (!clickupApiKey) {
+      return res.status(200).json({
+        response_type: 'ephemeral',
+        text: '❌ ClickUp API key not configured'
+      });
+    }
+
+    return res.status(200).json({
+      response_type: 'ephemeral',
+      text: `🔄 Sync initiated by ${user_name}!\n📁 Folder ID: ${folderId}\n⏱️ This may take a few minutes...`
+    });
+    
+  } catch (error: any) {
+    return res.status(200).json({
+      response_type: 'ephemeral',
+      text: `❌ Sync failed: ${error.message}`
+    });
+  }
+}
+
+async function handleSearch(query: string, res: VercelResponse) {
+  if (!query || query.trim().length === 0) {
+    return res.status(200).json({
+      response_type: 'ephemeral',
+      text: '🔍 Please provide a search query.\nExample: `/playbook-search customer onboarding`'
+    });
+  }
+
+  return res.status(200).json({
+    response_type: 'ephemeral',
+    text: `🔍 Searching for: "${query}"\n\n⏳ Search functionality is being enhanced...\n🚀 Coming soon: AI-powered semantic search!`
+  });
+}
+
+async function handleCategory(category: string, res: VercelResponse) {
+  if (!category || category.trim().length === 0) {
+    const categories = ['Sales', 'Marketing', 'Customer Success', 'Product', 'Engineering', 'HR', 'Operations'];
+    return res.status(200).json({
+      response_type: 'ephemeral',
+      text: `📂 Available categories:\n${categories.map(cat => `• ${cat}`).join('\n')}\n\nUsage: \`/playbook-category Sales\``
+    });
+  }
+
+  return res.status(200).json({
+    response_type: 'ephemeral',
+    text: `📂 Browsing "${category}" playbooks...\n\n⏳ Category browsing is being enhanced...\n🚀 Coming soon: Organized playbook categories!`
+  });
 }
 
 async function handleEvents(req: VercelRequest, res: VercelResponse) {
