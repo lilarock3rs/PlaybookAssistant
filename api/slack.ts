@@ -25,6 +25,13 @@ export default async function handler(
     return handleTestHome(req, res);
   }
   
+  // Handle app_home_opened event at the main level
+  if (req.body && req.body.event && req.body.event.type === 'app_home_opened') {
+    console.log('App home opened event detected:', req.body.event);
+    await handleHomeOpened(req.body.event);
+    return res.status(200).json({ ok: true });
+  }
+
   // Default: try to handle as command or event
   if (req.body && req.body.command) {
     return handleCommands(req, res);
@@ -573,11 +580,7 @@ async function handleEvents(req: VercelRequest, res: VercelResponse) {
     return res.status(200).json({ challenge: req.body.challenge });
   }
   
-  // Handle app_home_opened event
-  if (req.body && req.body.event && req.body.event.type === 'app_home_opened') {
-    console.log('App home opened event detected:', req.body.event);
-    await handleHomeOpened(req.body.event);
-  }
+  // Handle app_home_opened event is now handled at main level
   
   // Handle other events
   return res.status(200).json({ ok: true });
