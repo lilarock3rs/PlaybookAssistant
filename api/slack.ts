@@ -4,6 +4,14 @@ export default async function handler(
   req: VercelRequest,
   res: VercelResponse
 ): Promise<void> {
+  console.log('Request received:', { method: req.method, url: req.url, body: req.body });
+  
+  // Handle URL verification challenge first (for Events)
+  if (req.body && req.body.type === 'url_verification') {
+    console.log('URL verification challenge:', req.body.challenge);
+    return res.status(200).json({ challenge: req.body.challenge });
+  }
+  
   const { pathname } = new URL(req.url || '', `http://${req.headers.host}`);
   
   // Route based on path
@@ -15,7 +23,14 @@ export default async function handler(
     return handleInteractive(req, res);
   }
   
-  res.status(404).json({ error: 'Not found' });
+  // Default: try to handle as command or event
+  if (req.body && req.body.command) {
+    return handleCommands(req, res);
+  } else if (req.body && req.body.event) {
+    return handleEvents(req, res);
+  }
+  
+  res.status(200).json({ ok: true });
 }
 
 async function handleCommands(req: VercelRequest, res: VercelResponse) {
