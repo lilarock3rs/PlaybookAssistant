@@ -48,10 +48,15 @@ The bot is currently being set up. Full functionality will be available soon!`
 }
 
 async function handleEvents(req: VercelRequest, res: VercelResponse) {
-  if (req.body.type === 'url_verification') {
+  console.log('Event received:', req.body);
+  
+  // Handle URL verification challenge
+  if (req.body && req.body.type === 'url_verification') {
+    console.log('URL verification challenge:', req.body.challenge);
     return res.status(200).json({ challenge: req.body.challenge });
   }
   
+  // Handle other events
   return res.status(200).json({ ok: true });
 }
 
