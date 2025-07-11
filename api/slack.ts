@@ -103,14 +103,138 @@ async function handleSearch(query: string, res: VercelResponse) {
   if (!query || query.trim().length === 0) {
     return res.status(200).json({
       response_type: 'ephemeral',
-      text: '🔍 Please provide a search query.\nExample: `/playbook-search customer onboarding`'
+      text: '🔍 Please provide a search query.\nExample: `/playbook-search primer`'
     });
   }
 
-  return res.status(200).json({
-    response_type: 'ephemeral',
-    text: `🔍 Searching for: "${query}"\n\n⏳ Search functionality is being enhanced...\n🚀 Coming soon: AI-powered semantic search!`
+  try {
+    const playbooks = await searchClickUpPlaybooks(query);
+    
+    if (playbooks.length === 0) {
+      return res.status(200).json({
+        response_type: 'ephemeral',
+        text: `🔍 No playbooks found for: "${query}"\n\nTry a different search term or use \`/playbook-sync\` to update data.`
+      });
+    }
+
+    // Format results for Slack
+    const blocks = formatPlaybooksForSlack(playbooks, query);
+    
+    return res.status(200).json({
+      response_type: 'in_channel',
+      text: `Found ${playbooks.length} playbook(s) for: "${query}"`,
+      blocks: blocks
+    });
+
+  } catch (error: any) {
+    console.error('Search error:', error);
+    return res.status(200).json({
+      response_type: 'ephemeral',
+      text: `❌ Search failed: ${error.message}\n\nTry \`/playbook-sync\` first to load data.`
+    });
+  }
+}
+
+async function searchClickUpPlaybooks(query: string) {
+  const clickupApiKey = process.env.CLICKUP_API_KEY;
+  const folderId = process.env.CLICKUP_PLAYBOOKS_FOLDER_ID;
+  
+  if (!clickupApiKey) {
+    throw new Error('ClickUp API key not configured');
+  }
+
+  // Search in ClickUp folder
+  const url = folderId 
+    ? `https://api.clickup.com/api/v2/folder/${folderId}/task`
+    : `https://api.clickup.com/api/v2/team/2285500/task`;
+
+  const queryParams = new URLSearchParams({
+    limit: '10',
+    include_completed: 'false'
   });
+
+  const response = await fetch(`${url}?${queryParams}`, {
+    headers: {
+      'Authorization': clickupApiKey,
+      'Content-Type': 'application/json'
+    }
+  });
+
+  if (!response.ok) {
+    throw new Error(`ClickUp API error: ${response.status}`);
+  }
+
+  const data = await response.json() as any;
+  const tasks = data.tasks || [];
+
+  // Filter tasks that match the query
+  return tasks.filter((task: any) => 
+    task.name.toLowerCase().includes(query.toLowerCase()) ||
+    (task.description && task.description.toLowerCase().includes(query.toLowerCase()))
+  );
+}
+
+function formatPlaybooksForSlack(playbooks: any[], query: string) {
+  const blocks = [
+    {
+      type: 'section',
+      text: {
+        type: 'mrkdwn',
+        text: `*Search Results for "${query}"*`
+      }
+    },
+    {
+      type: 'divider'
+    }
+  ];
+
+  playbooks.forEach((playbook, index) => {
+    if (index >= 5) return; // Limit to 5 results
+    
+    // Extract custom fields for hours/timeline
+    const customFields = playbook.custom_fields || [];
+    const hoursField = customFields.find((field: any) => 
+      field.name.toLowerCase().includes('hour') || 
+      field.name.toLowerCase().includes('time') ||
+      field.name.toLowerCase().includes('sprint')
+    );
+    
+    const hoursInfo = hoursField ? hoursField.value : 'Not specified';
+    
+    blocks.push({
+      type: 'section',
+      text: {
+        type: 'mrkdwn',
+        text: `*${playbook.name}*\n${playbook.description || 'No description available'}\n\n⏱️ *Timeline:* ${hoursInfo}`
+      },
+      accessory: {
+        type: 'button',
+        text: {
+          type: 'plain_text',
+          text: 'Open Playbook'
+        },
+        url: playbook.url
+      }
+    });
+
+    blocks.push({
+      type: 'context',
+      elements: [
+        {
+          type: 'mrkdwn',
+          text: `Status: ${playbook.status?.status || 'Unknown'} | List: ${playbook.list?.name || 'Unknown'}`
+        }
+      ]
+    });
+
+    if (index < playbooks.length - 1 && index < 4) {
+      blocks.push({
+        type: 'divider'
+      });
+    }
+  });
+
+  return blocks;
 }
 
 async function handleCategory(category: string, res: VercelResponse) {
