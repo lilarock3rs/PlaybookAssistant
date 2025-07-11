@@ -21,6 +21,8 @@ export default async function handler(
     return handleEvents(req, res);
   } else if (pathname.includes('/interactive')) {
     return handleInteractive(req, res);
+  } else if (pathname.includes('/test-home')) {
+    return handleTestHome(req, res);
   }
   
   // Default: try to handle as command or event
@@ -573,6 +575,7 @@ async function handleEvents(req: VercelRequest, res: VercelResponse) {
   
   // Handle app_home_opened event
   if (req.body && req.body.event && req.body.event.type === 'app_home_opened') {
+    console.log('App home opened event detected:', req.body.event);
     await handleHomeOpened(req.body.event);
   }
   
@@ -583,9 +586,13 @@ async function handleEvents(req: VercelRequest, res: VercelResponse) {
 async function handleHomeOpened(event: any) {
   const { user } = event;
   
+  console.log('Handling home opened for user:', user);
+  console.log('SLACK_BOT_TOKEN available:', !!process.env.SLACK_BOT_TOKEN);
+  
   try {
     // Create Home tab view
     const homeView = await createHomeView();
+    console.log('Home view created:', JSON.stringify(homeView, null, 2));
     
     // Update the home tab using Web API
     const response = await fetch('https://slack.com/api/views.publish', {
@@ -601,7 +608,11 @@ async function handleHomeOpened(event: any) {
     });
 
     const result = await response.json();
-    console.log('Home view published:', result);
+    console.log('Slack API response:', result);
+    
+    if (!result.ok) {
+      console.error('Slack API error:', result.error);
+    }
     
   } catch (error) {
     console.error('Error updating home tab:', error);
@@ -820,4 +831,48 @@ async function sendHelpResponse(userId: string) {
     '• `/playbook-help` - Mostrar esta ayuda\n\n' +
     '_¡También puedes usar los botones en la pestaña Home para acceso rápido!_'
   );
+}
+
+async function handleTestHome(req: VercelRequest, res: VercelResponse) {
+  if (req.method !== 'POST') {
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+
+  const { user_id } = req.body;
+  
+  if (!user_id) {
+    return res.status(400).json({ error: 'user_id is required' });
+  }
+
+  console.log('Testing home view for user:', user_id);
+  
+  try {
+    const homeView = await createHomeView();
+    
+    const response = await fetch('https://slack.com/api/views.publish', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${process.env.SLACK_BOT_TOKEN}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        user_id: user_id,
+        view: homeView
+      })
+    });
+
+    const result = await response.json();
+    
+    return res.status(200).json({
+      success: true,
+      slack_response: result,
+      home_view: homeView
+    });
+    
+  } catch (error: any) {
+    return res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
 }
