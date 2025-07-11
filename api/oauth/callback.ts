@@ -10,13 +10,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   // Handle OAuth error
   if (error) {
     console.error('OAuth error:', error);
-    return res.redirect(302, `https://revpartners.io/?error=${encodeURIComponent(error as string)}`);
+    return res.redirect(302, `https://${req.headers.host}/api/oauth/success?error=${encodeURIComponent(error as string)}`);
   }
 
   // Handle missing code
   if (!code) {
     console.error('Missing authorization code');
-    return res.redirect(302, 'https://revpartners.io/?error=missing_code');
+    return res.redirect(302, `https://${req.headers.host}/api/oauth/success?error=missing_code`);
   }
 
   try {
@@ -38,7 +38,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     if (!tokenData.ok) {
       console.error('Token exchange failed:', tokenData.error);
-      return res.redirect(302, `https://revpartners.io/?error=${encodeURIComponent(tokenData.error)}`);
+      return res.redirect(302, `https://${req.headers.host}/api/oauth/success?error=${encodeURIComponent(tokenData.error)}`);
     }
 
     // Store token in database or session
@@ -50,10 +50,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     });
 
     // Redirect to success page
-    return res.redirect(302, 'https://revpartners.io/?success=true');
+    return res.redirect(302, `https://${req.headers.host}/api/oauth/success`);
 
   } catch (error) {
     console.error('OAuth callback error:', error);
-    return res.redirect(302, 'https://revpartners.io/?error=server_error');
+    return res.redirect(302, `https://${req.headers.host}/api/oauth/success?error=server_error`);
   }
 }
