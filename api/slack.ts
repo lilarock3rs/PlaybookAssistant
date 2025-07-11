@@ -12,6 +12,13 @@ export default async function handler(
     return res.status(200).json({ challenge: req.body.challenge });
   }
   
+  // Handle app_home_opened event FIRST (before routing)
+  if (req.body && req.body.event && req.body.event.type === 'app_home_opened') {
+    console.log('App home opened event detected:', req.body.event);
+    await handleHomeOpened(req.body.event);
+    return res.status(200).json({ ok: true });
+  }
+
   const { pathname } = new URL(req.url || '', `http://${req.headers.host}`);
   
   // Route based on path
@@ -23,13 +30,6 @@ export default async function handler(
     return handleInteractive(req, res);
   } else if (pathname.includes('/test-home')) {
     return handleTestHome(req, res);
-  }
-  
-  // Handle app_home_opened event at the main level
-  if (req.body && req.body.event && req.body.event.type === 'app_home_opened') {
-    console.log('App home opened event detected:', req.body.event);
-    await handleHomeOpened(req.body.event);
-    return res.status(200).json({ ok: true });
   }
 
   // Default: try to handle as command or event
