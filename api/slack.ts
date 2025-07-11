@@ -186,7 +186,7 @@ async function searchClickUpPlaybooks(query: string) {
       detailedPlaybooks.push({
         id: doc.id,
         name: doc.name,
-        url: `https://app.clickup.com/doc/${doc.id}`,
+        url: `https://app.clickup.com/${workspaceId}/v/dc/${doc.id}`,
         description: docDetails.description,
         timeline: docDetails.timeline,
         created_at: doc.created_at,
@@ -198,7 +198,7 @@ async function searchClickUpPlaybooks(query: string) {
       detailedPlaybooks.push({
         id: doc.id,
         name: doc.name,
-        url: `https://app.clickup.com/doc/${doc.id}`,
+        url: `https://app.clickup.com/${workspaceId}/v/dc/${doc.id}`,
         description: 'Could not fetch description',
         timeline: 'Not specified',
         created_at: doc.created_at,
@@ -223,41 +223,57 @@ async function getDocumentDetails(docId: string, workspaceId: string, apiKey: st
   });
 
   if (!response.ok) {
-    throw new Error(`Document API error: ${response.status}`);
+    console.log(`Document API error: ${response.status} ${response.statusText}`);
+    const errorText = await response.text();
+    console.log('Error response:', errorText);
+    throw new Error(`Document API error: ${response.status} - ${errorText}`);
   }
 
   const docData = await response.json() as any;
   console.log('Document data structure:', Object.keys(docData));
+  console.log('Full document data:', JSON.stringify(docData, null, 2));
   
   // Look for "primer" page in the document content
   const pages = docData.pages || [];
-  console.log('Document pages:', pages.length);
+  console.log('Document pages count:', pages.length);
+  console.log('Available page names:', pages.map((p: any) => p.name || 'unnamed'));
   
   let description = 'No description available';
   let timeline = 'Not specified';
 
-  // Search for "primer" page
+  // Search for "primer" page (case insensitive)
   const primerPage = pages.find((page: any) => 
     page.name && page.name.toLowerCase().includes('primer')
   );
 
   if (primerPage) {
     console.log('Found primer page:', primerPage.name);
+    console.log('Primer page structure:', Object.keys(primerPage));
     
     // Extract description and timeline from primer page content
-    const content = primerPage.content || '';
+    const content = primerPage.content || primerPage.text || '';
+    console.log('Primer page content length:', content.length);
+    console.log('Primer page content preview:', content.substring(0, 200));
     
     // Try to extract description (assuming it's in the content)
     description = extractDescriptionFromContent(content);
     timeline = extractTimelineFromContent(content);
   } else {
-    console.log('No primer page found, available pages:', pages.map((p: any) => p.name));
+    console.log('No primer page found');
+    console.log('All pages:', pages.map((p: any) => ({ name: p.name, keys: Object.keys(p) })));
     
-    // Fallback: use document description if available
+    // Fallback: use document description or first page content
     if (docData.description) {
       description = docData.description;
+      console.log('Using document description:', description);
+    } else if (pages.length > 0 && pages[0].content) {
+      description = extractDescriptionFromContent(pages[0].content);
+      console.log('Using first page content for description');
     }
   }
+
+  console.log('Final extracted description:', description);
+  console.log('Final extracted timeline:', timeline);
 
   return { description, timeline };
 }
