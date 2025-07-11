@@ -213,9 +213,10 @@ async function searchClickUpPlaybooks(query: string) {
 async function getDocumentDetails(docId: string, workspaceId: string, apiKey: string) {
   console.log('Getting document details for:', docId);
   
-  const docUrl = `https://api.clickup.com/api/v3/workspaces/${workspaceId}/docs/${docId}`;
+  // Use the pages endpoint to get specific page details
+  const pagesUrl = `https://api.clickup.com/api/v3/workspaces/${workspaceId}/docs/${docId}/pages`;
   
-  const response = await fetch(docUrl, {
+  const response = await fetch(pagesUrl, {
     headers: {
       'Authorization': apiKey,
       'Content-Type': 'application/json'
@@ -223,54 +224,67 @@ async function getDocumentDetails(docId: string, workspaceId: string, apiKey: st
   });
 
   if (!response.ok) {
-    console.log(`Document API error: ${response.status} ${response.statusText}`);
+    console.log(`Pages API error: ${response.status} ${response.statusText}`);
     const errorText = await response.text();
     console.log('Error response:', errorText);
-    throw new Error(`Document API error: ${response.status} - ${errorText}`);
+    throw new Error(`Pages API error: ${response.status} - ${errorText}`);
   }
 
-  const docData = await response.json() as any;
-  console.log('Document data structure:', Object.keys(docData));
-  console.log('Full document data:', JSON.stringify(docData, null, 2));
+  const pagesData = await response.json() as any;
+  console.log('Pages API response structure:', Object.keys(pagesData));
   
-  // Look for "primer" page in the document content
-  const pages = docData.pages || [];
-  console.log('Document pages count:', pages.length);
+  const pages = pagesData.pages || pagesData || [];
+  console.log('Available pages count:', pages.length);
   console.log('Available page names:', pages.map((p: any) => p.name || 'unnamed'));
   
   let description = 'No description available';
   let timeline = 'Not specified';
 
-  // Search for "primer" page (case insensitive and flexible)
+  // Search for "primer" page in the pages
   const primerPage = pages.find((page: any) => {
     if (!page.name) return false;
     const pageName = page.name.toLowerCase();
-    return pageName.includes('primer') || pageName.includes('prime') || pageName === 'primer';
+    console.log('Checking page:', pageName);
+    return pageName.includes('primer') || pageName.includes('prime');
   });
 
   if (primerPage) {
     console.log('Found primer page:', primerPage.name);
     console.log('Primer page structure:', Object.keys(primerPage));
     
-    // Extract description and timeline from primer page content
-    const content = primerPage.content || primerPage.text || '';
-    console.log('Primer page content length:', content.length);
-    console.log('Primer page content preview:', content.substring(0, 200));
+    // Extract description from primer page
+    if (primerPage.description) {
+      // If there's a direct description field, use first 100 words
+      const words = primerPage.description.split(/\s+/);
+      description = words.slice(0, 100).join(' ');
+      if (words.length > 100) description += '...';
+      console.log('Using primer page description field:', description);
+    } else if (primerPage.content) {
+      // Extract from content
+      description = extractDescriptionFromContent(primerPage.content);
+      console.log('Extracted from primer page content:', description);
+    }
     
-    // Try to extract description (assuming it's in the content)
-    description = extractDescriptionFromContent(content);
-    timeline = extractTimelineFromContent(content);
+    // Extract timeline from primer page
+    const contentToSearch = primerPage.content || primerPage.description || '';
+    timeline = extractTimelineFromContent(contentToSearch);
+    console.log('Extracted timeline:', timeline);
+    
   } else {
     console.log('No primer page found');
-    console.log('All pages:', pages.map((p: any) => ({ name: p.name, keys: Object.keys(p) })));
+    console.log('All available pages:', pages.map((p: any) => ({ 
+      name: p.name, 
+      hasDescription: !!p.description,
+      hasContent: !!p.content 
+    })));
     
-    // Fallback: use document description or first page content
-    if (docData.description) {
-      description = docData.description;
-      console.log('Using document description:', description);
-    } else if (pages.length > 0 && pages[0].content) {
-      description = extractDescriptionFromContent(pages[0].content);
-      console.log('Using first page content for description');
+    // Fallback: try to find any page with useful content
+    const contentPage = pages.find((p: any) => p.description || p.content);
+    if (contentPage) {
+      console.log('Using fallback page:', contentPage.name);
+      const content = contentPage.description || contentPage.content || '';
+      description = extractDescriptionFromContent(content);
+      timeline = extractTimelineFromContent(content);
     }
   }
 
@@ -337,22 +351,42 @@ function extractDescriptionFromContent(content: string): string {
 }
 
 function extractTimelineFromContent(content: string): string {
-  // Look for common timeline patterns
+  console.log('Extracting timeline from content length:', content.length);
+  
+  // Remove HTML tags for cleaner matching
+  const cleanContent = content.replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim();
+  
+  // Look for specific timeline patterns, prioritizing "Estimated Timeline"
   const timelinePatterns = [
-    /timeline[:\s]*([^<\n]*)/i,
-    /hours?[:\s]*([^<\n]*)/i,
-    /sprint[s]?[:\s]*([^<\n]*)/i,
-    /duration[:\s]*([^<\n]*)/i,
-    /time[:\s]*([^<\n]*)/i
+    /estimated\s+timeline[:\s]*([^.\n]*)/i,
+    /timeline[:\s]*([^.\n]*)/i,
+    /estimated\s+time[:\s]*([^.\n]*)/i,
+    /duration[:\s]*([^.\n]*)/i,
+    /time\s+required[:\s]*([^.\n]*)/i,
+    /hours?[:\s]*([^.\n]*)/i,
+    /sprint[s]?[:\s]*([^.\n]*)/i,
+    /weeks?[:\s]*([^.\n]*)/i,
+    /days?[:\s]*([^.\n]*)/i
   ];
 
   for (const pattern of timelinePatterns) {
-    const match = content.match(pattern);
+    const match = cleanContent.match(pattern);
     if (match && match[1]) {
-      return match[1].trim();
+      const timeline = match[1].trim();
+      console.log('Found timeline with pattern:', pattern.source, '→', timeline);
+      return timeline;
     }
   }
 
+  // Look for any number followed by time units
+  const numberTimePattern = /(\d+\s*(?:hour|day|week|month|sprint)s?)/i;
+  const numberMatch = cleanContent.match(numberTimePattern);
+  if (numberMatch) {
+    console.log('Found number-based timeline:', numberMatch[1]);
+    return numberMatch[1];
+  }
+
+  console.log('No timeline pattern found');
   return 'Not specified';
 }
 
