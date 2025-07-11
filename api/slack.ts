@@ -571,10 +571,253 @@ async function handleEvents(req: VercelRequest, res: VercelResponse) {
     return res.status(200).json({ challenge: req.body.challenge });
   }
   
+  // Handle app_home_opened event
+  if (req.body && req.body.event && req.body.event.type === 'app_home_opened') {
+    await handleHomeOpened(req.body.event);
+  }
+  
   // Handle other events
   return res.status(200).json({ ok: true });
 }
 
+async function handleHomeOpened(event: any) {
+  const { user } = event;
+  
+  try {
+    // Create Home tab view
+    const homeView = await createHomeView();
+    
+    // Update the home tab using Web API
+    const response = await fetch('https://slack.com/api/views.publish', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${process.env.SLACK_BOT_TOKEN}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        user_id: user,
+        view: homeView
+      })
+    });
+
+    const result = await response.json();
+    console.log('Home view published:', result);
+    
+  } catch (error) {
+    console.error('Error updating home tab:', error);
+  }
+}
+
+async function createHomeView() {
+  // Get some stats for display
+  const currentTime = new Date().toLocaleTimeString('es-ES', { 
+    hour: '2-digit', 
+    minute: '2-digit',
+    timeZone: 'America/Mexico_City'
+  });
+  
+  return {
+    type: 'home',
+    blocks: [
+      // 1. Bienvenida y Estado
+      {
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: '*🤖 ¡Bienvenido a PlaybookAI Assistant!*'
+        }
+      },
+      {
+        type: 'section',
+        fields: [
+          {
+            type: 'mrkdwn',
+            text: `*📊 Estado:*\nActivo y listo para ayudar`
+          },
+          {
+            type: 'mrkdwn',
+            text: `*📚 Playbooks disponibles:*\n25+ documentos`
+          },
+          {
+            type: 'mrkdwn',
+            text: `*🔄 Última sincronización:*\nHoy a las ${currentTime}`
+          },
+          {
+            type: 'mrkdwn',
+            text: `*🎯 Workspace:*\nClickUp HubSpot`
+          }
+        ]
+      },
+      {
+        type: 'divider'
+      },
+      
+      // 2. Acciones Rápidas
+      {
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: '*⚡ Acciones Rápidas*'
+        }
+      },
+      {
+        type: 'actions',
+        elements: [
+          {
+            type: 'button',
+            text: {
+              type: 'plain_text',
+              text: '🔍 Buscar Playbooks',
+              emoji: true
+            },
+            style: 'primary',
+            action_id: 'search_playbooks'
+          },
+          {
+            type: 'button',
+            text: {
+              type: 'plain_text',
+              text: '📂 Explorar Categorías',
+              emoji: true
+            },
+            action_id: 'browse_categories'
+          }
+        ]
+      },
+      {
+        type: 'actions',
+        elements: [
+          {
+            type: 'button',
+            text: {
+              type: 'plain_text',
+              text: '🔄 Sincronizar ClickUp',
+              emoji: true
+            },
+            action_id: 'sync_clickup'
+          },
+          {
+            type: 'button',
+            text: {
+              type: 'plain_text',
+              text: '❓ Ver Ayuda',
+              emoji: true
+            },
+            action_id: 'show_help'
+          }
+        ]
+      },
+      {
+        type: 'divider'
+      },
+      
+      // 3. Playbooks Más Populares
+      {
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: '*📈 Playbooks Más Consultados Esta Semana*'
+        }
+      },
+      {
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: '• *HubSpot Audit* - Auditoría completa de HubSpot\n• *Service Hub: HubSpot Chatbots* - Configuración de chatbots\n• *Sales Process Setup* - Configuración de procesos de ventas\n• *Customer Onboarding* - Proceso de incorporación de clientes'
+        }
+      },
+      {
+        type: 'context',
+        elements: [
+          {
+            type: 'mrkdwn',
+            text: 'ℹ️ _Usa `/playbook-search [término]` para buscar playbooks específicos_'
+          }
+        ]
+      }
+    ]
+  };
+}
+
 async function handleInteractive(req: VercelRequest, res: VercelResponse) {
+  console.log('Interactive event received:', req.body);
+  
+  if (req.body.payload) {
+    const payload = JSON.parse(req.body.payload);
+    
+    if (payload.type === 'block_actions') {
+      const action = payload.actions[0];
+      const user = payload.user;
+      
+      switch (action.action_id) {
+        case 'search_playbooks':
+          await sendSearchPrompt(user.id);
+          break;
+        case 'browse_categories':
+          await sendCategoriesResponse(user.id);
+          break;
+        case 'sync_clickup':
+          await sendSyncResponse(user.id);
+          break;
+        case 'show_help':
+          await sendHelpResponse(user.id);
+          break;
+      }
+    }
+  }
+  
   return res.status(200).json({ ok: true });
+}
+
+async function sendSlackMessage(userId: string, text: string, blocks?: any[]) {
+  try {
+    const response = await fetch('https://slack.com/api/chat.postMessage', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${process.env.SLACK_BOT_TOKEN}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        channel: userId,
+        text: text,
+        blocks: blocks
+      })
+    });
+
+    const result = await response.json();
+    console.log('Message sent:', result);
+    return result;
+  } catch (error) {
+    console.error('Error sending message:', error);
+  }
+}
+
+async function sendSearchPrompt(userId: string) {
+  await sendSlackMessage(userId, 
+    '🔍 Para buscar playbooks, usa el comando:\n`/playbook-search [término de búsqueda]`\n\nEjemplos:\n• `/playbook-search HubSpot`\n• `/playbook-search sales`\n• `/playbook-search chatbot`'
+  );
+}
+
+async function sendCategoriesResponse(userId: string) {
+  const categories = ['Sales', 'Marketing', 'Customer Success', 'Product', 'Engineering', 'HR', 'Operations'];
+  await sendSlackMessage(userId,
+    `📂 Categorías disponibles:\n${categories.map(cat => `• ${cat}`).join('\n')}\n\nUsa: \`/playbook-category [categoría]\`\nEjemplo: \`/playbook-category Sales\``
+  );
+}
+
+async function sendSyncResponse(userId: string) {
+  await sendSlackMessage(userId,
+    '🔄 Para sincronizar con ClickUp, usa:\n`/playbook-sync`\n\nEsto actualizará todos los playbooks desde tu workspace de ClickUp.'
+  );
+}
+
+async function sendHelpResponse(userId: string) {
+  await sendSlackMessage(userId,
+    '*🤖 PlaybookAI Assistant - Comandos Disponibles:*\n\n' +
+    '• `/playbook-search [query]` - Buscar playbooks\n' +
+    '• `/playbook-category [category]` - Explorar por categoría\n' +
+    '• `/playbook-sync` - Sincronizar desde ClickUp\n' +
+    '• `/playbook-help` - Mostrar esta ayuda\n\n' +
+    '_¡También puedes usar los botones en la pestaña Home para acceso rápido!_'
+  );
 }
