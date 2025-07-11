@@ -263,17 +263,15 @@ async function getDocumentDetails(docId: string, workspaceId: string, apiKey: st
     console.log('Found primer page:', primerPage.name);
     console.log('Primer page structure:', Object.keys(primerPage));
     
-    // Extract description from primer page
-    if (primerPage.description) {
-      // If there's a direct description field, use first 100 words
-      const words = primerPage.description.split(/\s+/);
-      description = words.slice(0, 100).join(' ');
-      if (words.length > 100) description += '...';
-      console.log('Using primer page description field:', description);
-    } else if (primerPage.content) {
-      // Extract from content
+    // Extract description from primer page - prioritize content over description field
+    if (primerPage.content) {
+      // Extract from content first as it's more likely to have the Definition section
       description = extractDescriptionFromContent(primerPage.content);
       console.log('Extracted from primer page content:', description);
+    } else if (primerPage.description) {
+      // Fallback to description field
+      description = extractDescriptionFromContent(primerPage.description);
+      console.log('Extracted from primer page description field:', description);
     }
     
     // Extract timeline from primer page
@@ -421,11 +419,39 @@ function extractTimelineFromContent(content: string): string {
     const match = cleanContent.match(pattern);
     if (match && match[1]) {
       const timeline = match[1].trim();
-      // Clean up the timeline to remove extra text
-      const cleanTimeline = timeline.replace(/\s*(?:Key Components|Implementation|Steps|Overview|Definition|Benefits|Objectives|Requirements|Notes).*$/i, '').trim();
+      // Clean up the timeline to remove extra text and format properly
+      let cleanTimeline = timeline
+        .replace(/\s*(?:Key Components|Implementation|Steps|Overview|Definition|Benefits|Objectives|Requirements|Notes).*$/i, '')
+        .replace(/\*\s*/g, '') // Remove asterisks
+        .replace(/\s+/g, ' ') // Normalize spaces
+        .trim();
+      
+      // If it's too long or contains unwanted text, try to extract just the time parts
+      if (cleanTimeline.length > 50 || cleanTimeline.includes('External') || cleanTimeline.includes('Internal')) {
+        // Look for specific time patterns within the match
+        const timeOnlyMatch = cleanTimeline.match(/(\d+\s*(?:weeks?|days?|months?|sprints?)\s*(?:;\s*\d+\s*Sprint\s*Points)?)/i);
+        if (timeOnlyMatch) {
+          cleanTimeline = timeOnlyMatch[1];
+        } else {
+          // Try to extract just the first meaningful time mention
+          const firstTimeMatch = cleanTimeline.match(/(\d+\s*(?:weeks?|days?|months?))/i);
+          if (firstTimeMatch) {
+            cleanTimeline = firstTimeMatch[1];
+          }
+        }
+      }
+      
       console.log('Found timeline with pattern:', pattern.source, '→', cleanTimeline);
       return cleanTimeline;
     }
+  }
+
+  // Look for External/Internal timeline patterns specifically
+  const externalInternalPattern = /External[:\s]*(\d+\s*(?:weeks?|days?|months?))/i;
+  const extIntMatch = cleanContent.match(externalInternalPattern);
+  if (extIntMatch) {
+    console.log('Found External timeline:', extIntMatch[1]);
+    return `External: ${extIntMatch[1]}`;
   }
 
   // Look for any number followed by time units anywhere in content
