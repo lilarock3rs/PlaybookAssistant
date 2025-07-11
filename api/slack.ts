@@ -241,10 +241,12 @@ async function getDocumentDetails(docId: string, workspaceId: string, apiKey: st
   let description = 'No description available';
   let timeline = 'Not specified';
 
-  // Search for "primer" page (case insensitive)
-  const primerPage = pages.find((page: any) => 
-    page.name && page.name.toLowerCase().includes('primer')
-  );
+  // Search for "primer" page (case insensitive and flexible)
+  const primerPage = pages.find((page: any) => {
+    if (!page.name) return false;
+    const pageName = page.name.toLowerCase();
+    return pageName.includes('primer') || pageName.includes('prime') || pageName === 'primer';
+  });
 
   if (primerPage) {
     console.log('Found primer page:', primerPage.name);
@@ -279,14 +281,58 @@ async function getDocumentDetails(docId: string, workspaceId: string, apiKey: st
 }
 
 function extractDescriptionFromContent(content: string): string {
-  // Remove HTML tags and get first meaningful paragraph
-  const cleanContent = content.replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim();
+  console.log('Extracting description from content length:', content.length);
   
-  // Get first 200 characters as description
-  if (cleanContent.length > 200) {
-    return cleanContent.substring(0, 200) + '...';
+  // Remove HTML tags but keep some structure for parsing
+  let cleanContent = content.replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim();
+  console.log('Clean content preview:', cleanContent.substring(0, 300));
+  
+  // Look for "What is..." pattern
+  const whatIsMatch = cleanContent.match(/What is[^?]*\??\s*([^.!?]*[.!?])/i);
+  if (whatIsMatch && whatIsMatch[1]) {
+    const description = whatIsMatch[1].trim();
+    console.log('Found "What is..." description:', description);
+    return description;
   }
   
+  // Alternative patterns to look for
+  const patterns = [
+    /What is[:\s]+([^.!?]*[.!?])/i,
+    /Description[:\s]+([^.!?]*[.!?])/i,
+    /Overview[:\s]+([^.!?]*[.!?])/i,
+    /Purpose[:\s]+([^.!?]*[.!?])/i
+  ];
+  
+  for (const pattern of patterns) {
+    const match = cleanContent.match(pattern);
+    if (match && match[1]) {
+      const description = match[1].trim();
+      console.log('Found description with pattern:', pattern, description);
+      return description;
+    }
+  }
+  
+  // If no specific pattern found, look for first meaningful sentence after common headers
+  const lines = cleanContent.split(/[.!?]+/).filter(line => line.trim().length > 10);
+  console.log('Available lines:', lines.slice(0, 5));
+  
+  // Skip very short lines and headers, get first substantial content
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (trimmed.length > 20 && !trimmed.toLowerCase().includes('header') && !trimmed.toLowerCase().includes('title')) {
+      console.log('Using first substantial line:', trimmed);
+      return trimmed + '.';
+    }
+  }
+  
+  // Fallback: get first 200 characters
+  if (cleanContent.length > 200) {
+    const fallback = cleanContent.substring(0, 200) + '...';
+    console.log('Using fallback description:', fallback);
+    return fallback;
+  }
+  
+  console.log('No description found, returning default');
   return cleanContent || 'No description available';
 }
 
